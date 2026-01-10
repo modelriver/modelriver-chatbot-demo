@@ -1,0 +1,21 @@
+{
+    "name": "chatbot-async-backend",
+    "version": "1.0.0",
+    "description": "Backend for Chatbot Async App with ModelRiver webhook integration",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js",
+        "dev": "node server.js",
+        "test": "jest"
+    },
+    "dependencies": {
+        "express": "^4.18.2",
+        "axios": "^1.6.0",
+        "cors": "^2.8.5",
+        "uuid": "^9.0.0"
+    },
+    "devDependencies": {
+        "jest": "^29.7.0",
+        "supertest": "^6.3.3"
+    }
+}
