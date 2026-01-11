@@ -34,6 +34,7 @@ function App() {
 
     // Refs
     const messagesEndRef = useRef(null)
+    const isConnectingRef = useRef(false) // Guard to prevent multiple simultaneous connection attempts
 
     // ============================================
     // ModelRiver Client Hook
@@ -42,6 +43,7 @@ function App() {
     const {
         connect,
         disconnect,
+        reset,
         response,
         error: modelRiverError,
         isConnected,
@@ -76,41 +78,47 @@ function App() {
             // "completed" is used for event-driven workflows after callback
             // "success" is used for standard workflows
             if (status === 'success' || status === 'completed') {
-                // Extract AI response content (handle both structured and unstructured output)
-                let aiContent;
-                if (isStructured || (response.data && typeof response.data === 'object' && !response.data.choices && !Array.isArray(response.data))) {
-                    // Structured output - format as JSON
-                    aiContent = JSON.stringify(response.data, null, 2);
-                } else {
-                    // Unstructured output - extract from choices
-                    aiContent = response.data?.choices?.[0]?.message?.content ||
-                        response.content ||
-                        JSON.stringify(response.data);
-                }
+            // Extract AI response content (handle both structured and unstructured output)
+            let aiContent;
+            if (isStructured || (response.data && typeof response.data === 'object' && !response.data.choices && !Array.isArray(response.data))) {
+                // Structured output - format as JSON
+                aiContent = JSON.stringify(response.data, null, 2);
+            } else {
+                // Unstructured output - extract from choices
+                aiContent = response.data?.choices?.[0]?.message?.content ||
+                    response.content ||
+                    JSON.stringify(response.data);
+            }
 
-                // Extract usage and model info
-                const usage = meta.usage || {};
-                const model = meta.used_model || meta.model || 'unknown';
+            // Extract usage and model info
+            const usage = meta.usage || {};
+            const model = meta.used_model || meta.model || 'unknown';
 
                 // Add assistant message to chat only when status is success
-                setMessages(prev => [...prev, {
-                    id: Date.now(),
-                    role: 'assistant',
-                    content: aiContent,
-                    timestamp: new Date().toISOString(),
-                    meta: {
-                        ...meta,
-                        ...usage,
-                        model,
-                        channelId: response.channel_id,
-                        isStructured: isStructured || (typeof response.data === 'object' && !response.data.choices && !Array.isArray(response.data))
-                    }
-                }]);
+            setMessages(prev => [...prev, {
+                id: Date.now(),
+                role: 'assistant',
+                content: aiContent,
+                timestamp: new Date().toISOString(),
+                meta: {
+                    ...meta,
+                    ...usage,
+                    model,
+                    channelId: response.channel_id,
+                    isStructured: isStructured || (typeof response.data === 'object' && !response.data.choices && !Array.isArray(response.data))
+                }
+            }]);
 
-                setIsLoading(false);
-                // Don't call disconnect() here - the client will handle connection cleanup
-                // Calling disconnect() here can cause issues with event-driven workflows
-                // where the client needs to manage the connection lifecycle
+            setIsLoading(false);
+            
+            // If status is "completed" or "success", explicitly disconnect to prevent reconnection attempts
+            // Both statuses indicate workflow completion
+            if (status === 'completed' || status === 'success') {
+                console.log(`✅ Workflow completed (status: ${status}) - explicitly disconnecting to prevent reconnection`);
+                disconnect();
+                // Clear the connection guard
+                isConnectingRef.current = false;
+            }
             } else if (status === 'error') {
                 // Handle error status
                 const errorMessage = response.error?.message || response.message || 'An error occurred';
@@ -133,7 +141,7 @@ function App() {
                 console.log('⚠️ Unknown response status:', status);
             }
         }
-    }, [response, disconnect]);
+    }, [response]); // Removed disconnect from dependencies to prevent unnecessary re-renders
 
     // Handle ModelRiver errors
     useEffect(() => {
@@ -150,12 +158,18 @@ function App() {
         }
     }, [modelRiverError]);
 
-    // Cleanup on unmount
+    // Cleanup on unmount - use ref to avoid dependency issues
+    const disconnectRef = useRef(disconnect);
+    useEffect(() => {
+        disconnectRef.current = disconnect;
+    }, [disconnect]);
+
     useEffect(() => {
         return () => {
-            disconnect();
-        }
-    }, [disconnect])
+            // Only disconnect on actual unmount, not on every render
+            disconnectRef.current();
+        };
+    }, []); // Empty dependency array - only run on unmount
 
 
     // ============================================
@@ -179,10 +193,16 @@ function App() {
         }])
 
         try {
+            // Prevent multiple simultaneous connection attempts
+            if (isConnectingRef.current) {
+                console.log('⚠️ Connection already in progress, skipping...');
+                return;
+            }
+
             // Step 1: Send message to backend
             console.log('📤 Sending message to backend...')
 
-            const response = await fetch(`${BACKEND_URL}/chat`, {
+            const backendResponse = await fetch(`${BACKEND_URL}/chat`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -192,12 +212,12 @@ function App() {
                 })
             })
 
-            if (!response.ok) {
-                const errorData = await response.json()
-                throw new Error(errorData.error || `HTTP ${response.status}`)
+            if (!backendResponse.ok) {
+                const errorData = await backendResponse.json()
+                throw new Error(errorData.error || `HTTP ${backendResponse.status}`)
             }
 
-            const data = await response.json()
+            const data = await backendResponse.json()
             console.log('✅ Backend response:', data)
 
             // Step 2: Connect to ModelRiver WebSocket using the client SDK
@@ -207,13 +227,41 @@ function App() {
                 throw new Error('Missing WebSocket connection details from backend')
             }
 
+            // Check if we have a completed response from a previous request
+            // If so, reset the hook state before connecting to a new channel
+            if (response && (response.status === 'completed' || response.meta?.status === 'completed')) {
+                console.log('⚠️ Previous response is completed, resetting hook state before new connection');
+                reset(); // Reset hook state to clear completed response
+                // Small delay to ensure reset completes
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            // Disconnect any existing connection before connecting to a new one
+            // This prevents multiple connections from accumulating
+            // Only disconnect if we're currently connected or connecting
+            if (isConnected || isConnecting) {
+                console.log('🔌 Disconnecting existing connection before new connection');
+                disconnect();
+                // Small delay to ensure disconnect completes
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            // Set connection guard
+            isConnectingRef.current = true;
+            
             // Connect using ModelRiver client
+            console.log('🔌 Connecting to new channel:', channel_id);
             connect({
                 channelId: channel_id,
                 wsToken: ws_token,
                 websocketUrl: websocket_url,
                 websocketChannel: websocket_channel
-            })
+            });
+            
+            // Reset connection guard after a short delay (connection should be initiated)
+            setTimeout(() => {
+                isConnectingRef.current = false;
+            }, 500);
 
         } catch (err) {
             console.error('❌ Error sending message:', err)

@@ -167,6 +167,29 @@ app.post('/chat', async (req, res) => {
 });
 
 /**
+ * POST /webhook (fallback route for CLI/webhook forwarding tools)
+ * 
+ * This route handles webhooks forwarded from CLI tools or other forwarding services
+ * that may send to /webhook instead of /webhook/modelriver.
+ * It simply forwards to the main webhook handler.
+ */
+app.post('/webhook', async (req, res) => {
+    console.log('📥 Webhook received at /webhook (fallback route)');
+    console.log('🔄 Forwarding to /webhook/modelriver handler');
+    
+    // Forward to the main webhook handler
+    try {
+        await processModelRiverWebhook(req, res);
+    } catch (error) {
+        console.error('❌ Error processing webhook:', error.message);
+        console.error('❌ Error stack:', error.stack);
+        if (!res.headersSent) {
+            res.status(500).json({ error: error.message });
+        }
+    }
+});
+
+/**
  * POST /webhook/modelriver
  * 
  * Receives webhook events from ModelRiver when AI response is ready.
@@ -183,12 +206,28 @@ app.post('/chat', async (req, res) => {
  */
 app.post('/webhook/modelriver', async (req, res) => {
     try {
+        await processModelRiverWebhook(req, res);
+    } catch (error) {
+        console.error('❌ Error processing webhook:', error.message);
+        console.error('❌ Error stack:', error.stack);
+        if (!res.headersSent) {
+            res.status(500).json({ error: error.message });
+        }
+    }
+});
+
+async function processModelRiverWebhook(req, res) {
+    try {
         // Handle both standard and event-driven webhook formats
         const { channel_id, status, data, meta, callback_url, type, event, ai_response } = req.body;
         
-        // For event-driven workflows, callback_url is in the payload
-        // For standard webhooks, check header (though it may not be present)
-        const callbackUrl = callback_url || req.headers['x-modelriver-callback-url'];
+        // For event-driven workflows, callback_url can be:
+        // 1. Top level: callback_url
+        // 2. Inside data: data.callback_url
+        // 3. In headers: x-modelriver-callback-url
+        const callbackUrl = callback_url || 
+                           data?.callback_url || 
+                           req.headers['x-modelriver-callback-url'];
         
         // For event-driven workflows, extract data from ai_response
         const responseData = ai_response?.data || data;
@@ -238,10 +277,23 @@ app.post('/webhook/modelriver', async (req, res) => {
             usage: meta?.usage || data?.usage
         };
 
+        // Helper function to safely truncate response for logging
+        const truncateForLog = (value, maxLength = 50) => {
+            if (!value) return 'N/A';
+            if (typeof value === 'string') {
+                return value.length > maxLength ? value.substring(0, maxLength) + '...' : value;
+            }
+            if (typeof value === 'object') {
+                const str = JSON.stringify(value);
+                return str.length > maxLength ? str.substring(0, maxLength) + '...' : str;
+            }
+            return String(value).substring(0, maxLength) + '...';
+        };
+
         console.log('💾 Simulated DB Save:', {
             id: record.id,
-            prompt: record.prompt?.substring(0, 50) + '...',
-            response: record.response?.substring(0, 50) + '...'
+            prompt: truncateForLog(record.prompt),
+            response: truncateForLog(record.response)
         });
 
         // Store in memory (simulates DB)
@@ -274,12 +326,27 @@ app.post('/webhook/modelriver', async (req, res) => {
                     });
                 }
                 
-                console.log('📤 Sending callback to:', callbackUrl);
+                // ============================================
+                // CALLBACK LOGGING - Start
+                // ============================================
+                const callbackStartTime = Date.now();
+                const callbackStartTimestamp = new Date().toISOString();
+                
+                console.log('\n🔄 ============================================');
+                console.log('🔄 CALLBACK PROCESSING STARTED');
+                console.log('🔄 ============================================');
+                console.log('🔄 Timestamp:', callbackStartTimestamp);
+                console.log('🔄 Channel ID:', channel_id);
+            console.log('📤 Sending callback to:', callbackUrl);
                 console.log('📊 Channel ID from URL:', urlChannelId);
                 console.log('📊 Channel ID from webhook:', channel_id);
                 console.log('📊 Full webhook body keys:', Object.keys(req.body));
                 console.log('📊 Response data type:', typeof responseData, Array.isArray(responseData));
+                console.log('🔄 ============================================\n');
 
+                // Create a promise to track callback completion
+                let callbackPromise;
+                
                 try {
                 // For event-driven workflows, use ai_response.data directly
                 // For standard webhooks, use data
@@ -317,7 +384,7 @@ app.post('/webhook/modelriver', async (req, res) => {
                     // Array data - wrap in object
                     enrichedData = {
                         items: callbackData,
-                        id: messageId,
+                    id: messageId,
                         conversation_id: conversationId
                     };
                 } else if (callbackData !== null && callbackData !== undefined) {
@@ -363,8 +430,14 @@ app.post('/webhook/modelriver', async (req, res) => {
                     hasMetadata: !!callbackPayload.metadata
                 });
                 console.log('📦 Callback payload (first 500 chars):', JSON.stringify(callbackPayload).substring(0, 500));
+                console.log('🔄 About to send callback POST request...');
+                console.log('🔄 Request URL:', callbackUrl);
+                console.log('🔄 Request method: POST');
+                console.log('🔄 Request timeout: 30000ms');
 
-                const callbackResponse = await axios.post(callbackUrl, callbackPayload, {
+                // Track callback promise
+                const callbackRequestStartTime = Date.now();
+                callbackPromise = axios.post(callbackUrl, callbackPayload, {
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${MODELRIVER_API_KEY}`
@@ -373,59 +446,147 @@ app.post('/webhook/modelriver', async (req, res) => {
                     validateStatus: (status) => status < 500 // Don't throw on 4xx errors
                 });
 
-                console.log('✅ Callback sent successfully');
-                console.log('📥 Callback response status:', callbackResponse.status);
-                console.log('📥 Callback response data:', JSON.stringify(callbackResponse.data));
-            } catch (callbackError) {
-                console.error('❌ Callback failed:', callbackError.message);
-                if (callbackError.response) {
-                    console.error('❌ Callback error response status:', callbackError.response.status);
-                    console.error('❌ Callback error response data:', JSON.stringify(callbackError.response.data, null, 2));
-                    console.error('❌ Callback error response headers:', JSON.stringify(callbackError.response.headers, null, 2));
+                console.log('🔄 Callback promise created, awaiting response...');
+                
+                const callbackResponse = await callbackPromise;
+                
+                const callbackRequestDuration = Date.now() - callbackRequestStartTime;
+                const callbackTotalDuration = Date.now() - callbackStartTime;
+                const callbackEndTimestamp = new Date().toISOString();
+
+                console.log('\n✅ ============================================');
+                console.log('✅ CALLBACK SENT SUCCESSFULLY');
+                console.log('✅ ============================================');
+                console.log('✅ End timestamp:', callbackEndTimestamp);
+                console.log('✅ Request duration:', callbackRequestDuration, 'ms');
+                console.log('✅ Total callback processing duration:', callbackTotalDuration, 'ms');
+                console.log('✅ Callback response status:', callbackResponse.status);
+                console.log('✅ Callback response headers:', JSON.stringify(callbackResponse.headers, null, 2));
+                console.log('✅ Callback response data:', JSON.stringify(callbackResponse.data, null, 2));
+                console.log('✅ Channel ID:', channel_id);
+                console.log('✅ ============================================\n');
+                } catch (callbackError) {
+                    const callbackErrorDuration = Date.now() - callbackStartTime;
+                    const callbackErrorTimestamp = new Date().toISOString();
                     
-                    // Log the request that was sent for debugging
-                    console.error('❌ Callback request that failed:');
-                    console.error('  URL:', callbackUrl);
-                    console.error('  Method: POST');
-                    console.error('  Headers:', JSON.stringify({
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${MODELRIVER_API_KEY ? MODELRIVER_API_KEY.substring(0, 20) + '...' : 'MISSING'}`
-                    }, null, 2));
-                    console.error('  Payload:', JSON.stringify(callbackPayload, null, 2));
-                } else if (callbackError.request) {
-                    console.error('❌ Callback request failed - no response received');
-                    console.error('❌ Request URL:', callbackUrl);
-                    console.error('❌ Request method: POST');
-                    console.error('❌ Request config:', {
-                        timeout: callbackError.config?.timeout,
-                        headers: callbackError.config?.headers
-                    });
-                } else {
-                    console.error('❌ Callback setup error:', callbackError.message);
-                    console.error('❌ Error stack:', callbackError.stack);
-                }
+                    console.error('\n❌ ============================================');
+                    console.error('❌ CALLBACK FAILED');
+                    console.error('❌ ============================================');
+                    console.error('❌ Error timestamp:', callbackErrorTimestamp);
+                    console.error('❌ Error duration:', callbackErrorDuration, 'ms');
+                    console.error('❌ Channel ID:', channel_id);
+                    console.error('❌ Callback URL:', callbackUrl);
+                    console.error('❌ Error message:', callbackError.message);
+                    console.error('❌ Error name:', callbackError.name);
+                    
+                    if (callbackError.response) {
+                        // Server responded with error status
+                        console.error('❌ ============================================');
+                        console.error('❌ SERVER RESPONSE ERROR');
+                        console.error('❌ ============================================');
+                        console.error('❌ Response status:', callbackError.response.status);
+                        console.error('❌ Response status text:', callbackError.response.statusText);
+                        console.error('❌ Response data:', JSON.stringify(callbackError.response.data, null, 2));
+                        console.error('❌ Response headers:', JSON.stringify(callbackError.response.headers, null, 2));
+                        
+                        // Log the request that was sent for debugging
+                        console.error('❌ ============================================');
+                        console.error('❌ REQUEST THAT FAILED');
+                        console.error('❌ ============================================');
+                        console.error('❌ URL:', callbackUrl);
+                        console.error('❌ Method: POST');
+                        console.error('❌ Headers:', JSON.stringify({
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${MODELRIVER_API_KEY ? MODELRIVER_API_KEY.substring(0, 20) + '...' : 'MISSING'}`
+                        }, null, 2));
+                        console.error('❌ Payload:', JSON.stringify(callbackPayload, null, 2));
+                    } else if (callbackError.request) {
+                        // Request was made but no response received
+                        console.error('❌ ============================================');
+                        console.error('❌ NO RESPONSE RECEIVED');
+                        console.error('❌ ============================================');
+                        console.error('❌ Request was sent but no response received');
+                        console.error('❌ Request URL:', callbackUrl);
+                        console.error('❌ Request method: POST');
+                        console.error('❌ Request timeout:', callbackError.config?.timeout, 'ms');
+                        console.error('❌ Request config:', {
+                            timeout: callbackError.config?.timeout,
+                            headers: callbackError.config?.headers ? Object.keys(callbackError.config.headers) : 'N/A'
+                        });
+                        console.error('❌ This usually means:');
+                        console.error('   - Network error');
+                        console.error('   - Server is down');
+                        console.error('   - Request timed out');
+                        console.error('   - Connection refused');
+                    } else {
+                        // Error in request setup
+                        console.error('❌ ============================================');
+                        console.error('❌ REQUEST SETUP ERROR');
+                        console.error('❌ ============================================');
+                        console.error('❌ Error occurred while setting up request');
+                        console.error('❌ Error message:', callbackError.message);
+                        console.error('❌ Error stack:', callbackError.stack);
+                    }
+                    
+                    console.error('❌ ============================================\n');
+                    
+                    // Track promise rejection
+                    if (callbackPromise) {
+                        callbackPromise.catch((err) => {
+                            console.error('❌ Callback promise rejected:', err.message);
+                        });
+                    }
                 }
             }
         } else {
             console.log('⚠️  No callback_url provided - skipping callback');
             console.log('📊 Webhook body keys:', Object.keys(req.body));
             console.log('📊 Headers keys:', Object.keys(req.headers));
+            console.log('\n📦 Full Webhook Response:');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log(JSON.stringify(req.body, null, 2));
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            
+            // Also print structured view of key fields
+            if (data) {
+                console.log('\n📊 Webhook Data:');
+                console.log(JSON.stringify(data, null, 2));
+            }
+            if (ai_response) {
+                console.log('\n📊 AI Response:');
+                console.log(JSON.stringify(ai_response, null, 2));
+            }
+            if (meta) {
+                console.log('\n📊 Meta:');
+                console.log(JSON.stringify(meta, null, 2));
+            }
         }
 
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
         // Acknowledge webhook receipt
+        // Note: This response is sent immediately after callback is initiated
+        // The callback itself is handled asynchronously and logged separately
+        const webhookResponseTime = new Date().toISOString();
+        console.log('📤 Sending webhook acknowledgment response at:', webhookResponseTime);
+        console.log('📤 Channel ID:', channel_id);
+        console.log('📤 Message ID:', messageId);
+        
         res.json({
             success: true,
             message: 'Webhook processed',
-            record_id: messageId
+            record_id: messageId,
+            channel_id: channel_id,
+            timestamp: webhookResponseTime
         });
+        
+        console.log('✅ Webhook acknowledgment sent');
 
     } catch (error) {
         console.error('❌ Error processing webhook:', error.message);
         res.status(500).json({ error: error.message });
     }
-});
+}
 
 /**
  * GET /conversations/:id
