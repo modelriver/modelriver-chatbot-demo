@@ -31,6 +31,10 @@ const MODELRIVER_API_KEY = process.env.MODELRIVER_API_KEY;
 // In production, this would be your deployed backend URL
 const BACKEND_PUBLIC_URL = process.env.BACKEND_PUBLIC_URL || `http://localhost:${PORT}`;
 
+// Event name for event-driven workflows (e.g., 'new_chat', 'webhook_received', etc.)
+// This must match the event_name configured in your ModelRiver workflow
+const EVENT_NAME = process.env.EVENT_NAME || 'new_chat';
+
 // ============================================
 // In-Memory Storage (simulates database)
 // ============================================
@@ -107,7 +111,8 @@ app.post('/chat', async (req, res) => {
             // Explicitly tell ModelRiver where to send the webhook for this request
             webhook_url: `${BACKEND_PUBLIC_URL}/webhook/modelriver`,
             // Include events to enable callback URL functionality
-            events: events || ['webhook_received'],
+            // Use EVENT_NAME from environment variable or fallback to what's provided
+            events: events || [EVENT_NAME],
             metadata: {
                 conversation_id: customConversationId,
                 message_id: customMessageId,
@@ -146,6 +151,21 @@ app.post('/chat', async (req, res) => {
             conversationId: customConversationId,
             messageId: customMessageId
         });
+
+        console.log('\n⏳ Waiting for webhook from ModelRiver...');
+        console.log('⏳ Webhook URL:', `${BACKEND_PUBLIC_URL}/webhook/modelriver`);
+        console.log('⏳ Channel ID:', channel_id);
+        console.log('⏳ Expected event:', EVENT_NAME);
+        
+        // Warn if using localhost (ModelRiver can't reach it)
+        if (BACKEND_PUBLIC_URL.includes('localhost') || BACKEND_PUBLIC_URL.includes('127.0.0.1')) {
+            console.warn('\n⚠️  WARNING: Using localhost for webhook URL!');
+            console.warn('⚠️  ModelRiver servers cannot reach localhost.');
+            console.warn('⚠️  SOLUTION: Use ModelRiver CLI to forward webhooks to your local backend');
+            console.warn('⚠️  1. Log into ModelRiver CLI: modelriver login');
+            console.warn('⚠️  2. Forward webhook URL: modelriver forward http://localhost:4789/webhook/modelriver');
+            console.warn('⚠️  3. The CLI will provide a public URL - update BACKEND_PUBLIC_URL in .env\n');
+        }
 
         // Return WebSocket connection details to frontend
         res.json({
@@ -205,6 +225,14 @@ app.post('/webhook', async (req, res) => {
  * }
  */
 app.post('/webhook/modelriver', async (req, res) => {
+    console.log('\n🔔 ============================================');
+    console.log('🔔 WEBHOOK ENDPOINT HIT');
+    console.log('🔔 ============================================');
+    console.log('🔔 Timestamp:', new Date().toISOString());
+    console.log('🔔 Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('🔔 Body keys:', Object.keys(req.body));
+    console.log('🔔 ============================================\n');
+    
     try {
         await processModelRiverWebhook(req, res);
     } catch (error) {
@@ -230,10 +258,28 @@ async function processModelRiverWebhook(req, res) {
         // For event-driven workflows, callback_url can be:
         // 1. Top level: callback_url
         // 2. Inside data: data.callback_url
-        // 3. In headers: x-modelriver-callback-url
+        // 3. In headers: x-modelriver-callback-url (case-insensitive)
+        
+        // Debug callback URL extraction
+        console.log('\n🔍 ============================================');
+        console.log('🔍 CALLBACK URL EXTRACTION DEBUG');
+        console.log('🔍 ============================================');
+        console.log('🔍 Top level callback_url:', callback_url || 'NOT FOUND');
+        console.log('🔍 data?.callback_url:', data?.callback_url || 'NOT FOUND');
+        
+        // Check headers case-insensitively
+        const headerKeys = Object.keys(req.headers);
+        const callbackHeaderKey = headerKeys.find(key => 
+            key.toLowerCase() === 'x-modelriver-callback-url'
+        );
+        const callbackHeaderValue = callbackHeaderKey ? req.headers[callbackHeaderKey] : null;
+        console.log('🔍 Header x-modelriver-callback-url:', callbackHeaderValue || 'NOT FOUND');
+        console.log('🔍 All header keys:', headerKeys);
+        console.log('🔍 ============================================\n');
+        
         const callbackUrl = callback_url || 
                            data?.callback_url || 
-                           req.headers['x-modelriver-callback-url'];
+                           callbackHeaderValue;
         
         // For event-driven workflows (like new_chat), extract data from ai_response.data
         // This is where the structured response lives
@@ -244,15 +290,45 @@ async function processModelRiverWebhook(req, res) {
         console.log('📊 Channel ID:', channel_id);
         console.log('📊 Type:', actualType || 'standard');
         console.log('📊 Event:', actualEvent || 'N/A');
+        console.log('📊 Expected Event:', EVENT_NAME);
+        console.log('📊 Event Match:', actualEvent === EVENT_NAME ? '✅ MATCH' : '❌ MISMATCH');
         console.log('📊 Status:', status);
-        console.log('📊 Callback URL:', callbackUrl || 'Not provided');
+        console.log('📊 Callback URL (final):', callbackUrl || 'Not provided');
         console.log('📊 Has ai_response:', !!actualAiResponse);
         console.log('📊 Has ai_response.data:', !!actualAiResponse?.data);
         
-        // Log if this is a new_chat event
-        if (actualEvent === 'new_chat') {
-            console.log('🎯 Detected new_chat event!');
+        // Log if this matches the configured event name
+        if (actualEvent === EVENT_NAME) {
+            console.log(`🎯 Detected ${EVENT_NAME} event!`);
             console.log('📦 ai_response.data:', JSON.stringify(actualAiResponse?.data, null, 2));
+        } else if (actualEvent) {
+            console.error('\n❌ ============================================');
+            console.error('❌ EVENT NAME MISMATCH DETECTED');
+            console.error('❌ ============================================');
+            console.error('❌ Received Event:', actualEvent);
+            console.error('❌ Expected Event:', EVENT_NAME);
+            console.error('❌ Channel ID:', channel_id);
+            console.error('❌ Webhook Type:', actualType || 'standard');
+            console.error('❌ Status:', status);
+            console.error('❌ ============================================');
+            console.error('❌ This webhook will be processed but may not trigger callbacks correctly');
+            console.error('❌ SOLUTION: Set EVENT_NAME in .env to match your workflow event_name');
+            console.error('❌ Current .env EVENT_NAME:', EVENT_NAME);
+            console.error('❌ Workflow event_name should be:', actualEvent);
+            console.error('❌ ============================================\n');
+            
+            // Also log the full webhook body for debugging
+            console.log('📦 Full webhook body for debugging:');
+            console.log(JSON.stringify(req.body, null, 2));
+        } else {
+            console.warn('\n⚠️  ============================================');
+            console.warn('⚠️  NO EVENT NAME IN WEBHOOK');
+            console.warn('⚠️  ============================================');
+            console.warn('⚠️  This might be a standard webhook (not event-driven)');
+            console.warn('⚠️  Expected event:', EVENT_NAME);
+            console.warn('⚠️  Channel ID:', channel_id);
+            console.warn('⚠️  Webhook type:', actualType || 'standard');
+            console.warn('⚠️  ============================================\n');
         }
 
         // Retrieve pending request info
@@ -352,15 +428,33 @@ async function processModelRiverWebhook(req, res) {
                 console.log('🔄 ============================================');
                 console.log('🔄 Timestamp:', callbackStartTimestamp);
                 console.log('🔄 Channel ID:', channel_id);
-            console.log('📤 Sending callback to:', callbackUrl);
+                console.log('📤 Sending callback to:', callbackUrl);
                 console.log('📊 Channel ID from URL:', urlChannelId);
                 console.log('📊 Channel ID from webhook:', channel_id);
                 console.log('📊 Full webhook body keys:', Object.keys(req.body));
                 console.log('📊 Response data type:', typeof responseData, Array.isArray(responseData));
+                console.log('📊 actualEvent:', actualEvent || 'N/A');
+                console.log('📊 Expected Event:', EVENT_NAME);
+                console.log('📊 Event Match:', actualEvent === EVENT_NAME ? '✅ MATCH' : '❌ MISMATCH');
+                console.log('📊 actualType:', actualType);
+                console.log('📊 actualAiResponse exists:', !!actualAiResponse);
+                console.log('📊 actualAiResponse.data exists:', !!actualAiResponse?.data);
+                console.log('📊 data exists:', !!data);
+                
+                // Warn if event mismatch might affect callback
+                if (actualEvent && actualEvent !== EVENT_NAME) {
+                    console.warn('\n⚠️  WARNING: Event mismatch detected during callback processing');
+                    console.warn('⚠️  Received:', actualEvent);
+                    console.warn('⚠️  Expected:', EVENT_NAME);
+                    console.warn('⚠️  Callback will proceed but may not work correctly');
+                    console.warn('⚠️  Update EVENT_NAME in .env to match workflow event_name\n');
+                }
+                
                 console.log('🔄 ============================================\n');
 
                 // Create a promise to track callback completion
                 let callbackPromise;
+                let callbackPayload = null; // Initialize to avoid undefined reference
                 
                 try {
                 // For new_chat event, use ai_response.data directly
@@ -368,33 +462,51 @@ async function processModelRiverWebhook(req, res) {
                 // For standard webhooks, use data
                 let callbackData;
                 
-                if (actualEvent === 'new_chat' && actualAiResponse?.data) {
-                    // new_chat event: use ai_response.data directly
+                if (actualEvent === EVENT_NAME && actualAiResponse?.data) {
+                    // Event-driven workflow: use ai_response.data directly
                     callbackData = actualAiResponse.data;
-                    console.log('📦 Using ai_response.data for new_chat event');
+                    console.log(`📦 Using ai_response.data for ${EVENT_NAME} event (✅ Event matched)`);
+                    console.log('📦 callbackData keys:', Object.keys(callbackData));
+                } else if (actualEvent && actualEvent !== EVENT_NAME && actualAiResponse?.data) {
+                    // Event mismatch but has ai_response.data - warn but use it
+                    console.warn(`⚠️  Event mismatch: Using ai_response.data for "${actualEvent}" (expected "${EVENT_NAME}")`);
+                    callbackData = actualAiResponse.data;
+                    console.log('📦 callbackData keys:', Object.keys(callbackData));
+                    console.warn('⚠️  This may cause callback to fail or return incorrect data');
                 } else if (actualType === 'task.ai_generated' && actualAiResponse?.data) {
                     // Other event-driven: use ai_response.data as the base
                     callbackData = actualAiResponse.data;
                     console.log('📦 Using ai_response.data for event-driven callback');
+                    console.log('📦 callbackData keys:', Object.keys(callbackData));
                 } else if (data) {
                     // Standard webhook: use data directly
                     callbackData = data;
-                    console.log('📦 Using data for callback');
+                    console.log('📦 Using data for callback (standard webhook)');
+                    console.log('📦 callbackData keys:', Object.keys(callbackData));
+                    if (actualEvent && actualEvent !== EVENT_NAME) {
+                        console.warn(`⚠️  Event mismatch: Received "${actualEvent}" but using standard webhook data`);
+                    }
                 } else {
                     // Fallback: use responseData
                     callbackData = responseData || {};
-                    console.log('📦 Using responseData as fallback');
+                    console.warn('⚠️  Using responseData as fallback (no event match or data)');
+                    console.log('📦 callbackData keys:', Object.keys(callbackData));
+                    if (actualEvent && actualEvent !== EVENT_NAME) {
+                        console.error(`❌ Event mismatch caused fallback: Received "${actualEvent}", Expected "${EVENT_NAME}"`);
+                    }
                 }
 
                 // Simply add id to the AI response data
                 // ModelRiver expects data to be inside a "data" field
-                const callbackPayload = {
+                callbackPayload = {
                     data: {
                         ...callbackData,
                         id: messageId
                     },
                     task_id: messageId
                 };
+                
+                console.log('📦 Callback payload created successfully');
 
                 console.log('📦 Callback payload structure:', {
                     dataKeys: Object.keys(callbackPayload.data),
@@ -404,13 +516,17 @@ async function processModelRiverWebhook(req, res) {
                     id: callbackPayload.data.id
                 });
                 console.log('📦 Callback payload (first 500 chars):', JSON.stringify(callbackPayload).substring(0, 500));
+                console.log('📦 Full callback payload:', JSON.stringify(callbackPayload, null, 2));
                 console.log('🔄 About to send callback POST request...');
                 console.log('🔄 Request URL:', callbackUrl);
                 console.log('🔄 Request method: POST');
                 console.log('🔄 Request timeout: 30000ms');
+                console.log('🔄 Authorization header:', MODELRIVER_API_KEY ? `Bearer ${MODELRIVER_API_KEY.substring(0, 20)}...` : 'MISSING API KEY');
+                console.log('🔄 Payload size:', JSON.stringify(callbackPayload).length, 'bytes');
 
                 // Track callback promise
                 const callbackRequestStartTime = Date.now();
+                console.log('🔄 Making axios.post request at:', new Date().toISOString());
                 callbackPromise = axios.post(callbackUrl, callbackPayload, {
                     headers: {
                         'Content-Type': 'application/json',
@@ -473,7 +589,7 @@ async function processModelRiverWebhook(req, res) {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${MODELRIVER_API_KEY ? MODELRIVER_API_KEY.substring(0, 20) + '...' : 'MISSING'}`
                         }, null, 2));
-                        console.error('❌ Payload:', JSON.stringify(callbackPayload, null, 2));
+                        console.error('❌ Payload:', callbackPayload ? JSON.stringify(callbackPayload, null, 2) : 'Payload not created (error occurred before payload creation)');
                     } else if (callbackError.request) {
                         // Request was made but no response received
                         console.error('❌ ============================================');
@@ -513,9 +629,22 @@ async function processModelRiverWebhook(req, res) {
                 }
             }
         } else {
-            console.log('⚠️  No callback_url provided - skipping callback');
+            console.log('\n⚠️  ============================================');
+            console.log('⚠️  NO CALLBACK_URL PROVIDED - SKIPPING CALLBACK');
+            console.log('⚠️  ============================================');
+            console.log('⚠️  This means the callback will NOT be sent to ModelRiver');
+            console.log('⚠️  Check the webhook payload structure below');
+            console.log('⚠️  ============================================\n');
             console.log('📊 Webhook body keys:', Object.keys(req.body));
+            console.log('📊 Top level callback_url:', callback_url || 'NOT FOUND');
+            console.log('📊 data?.callback_url:', data?.callback_url || 'NOT FOUND');
             console.log('📊 Headers keys:', Object.keys(req.headers));
+            console.log('📊 Looking for header: x-modelriver-callback-url');
+            const headerKeys = Object.keys(req.headers);
+            const callbackHeaderKey = headerKeys.find(key => 
+                key.toLowerCase() === 'x-modelriver-callback-url'
+            );
+            console.log('📊 Found callback header:', callbackHeaderKey || 'NOT FOUND');
             console.log('\n📦 Full Webhook Response:');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log(JSON.stringify(req.body, null, 2));
@@ -589,7 +718,8 @@ app.get('/health', (req, res) => {
         config: {
             modelriver_api_url: MODELRIVER_API_URL,
             backend_public_url: BACKEND_PUBLIC_URL,
-            api_key_configured: !!MODELRIVER_API_KEY
+            api_key_configured: !!MODELRIVER_API_KEY,
+            event_name: EVENT_NAME
         }
     });
 });
@@ -613,5 +743,21 @@ app.listen(PORT, () => {
         console.log('⚠️  MODELRIVER_API_KEY not set - set it in environment variables');
     }
 
-    console.log('\nWaiting for requests...\n');
+    console.log(`📋 EVENT_NAME: ${EVENT_NAME} (configured in workflow)`);
+    console.log('   This must match the event_name in your ModelRiver workflow');
+    
+    // Warn if using localhost
+    if (BACKEND_PUBLIC_URL.includes('localhost') || BACKEND_PUBLIC_URL.includes('127.0.0.1')) {
+        console.log('\n⚠️  WARNING: BACKEND_PUBLIC_URL is set to localhost');
+        console.log('⚠️  ModelRiver cannot send webhooks to localhost');
+        console.log('⚠️  SOLUTION: Use ModelRiver CLI to forward webhooks');
+        console.log('⚠️  1. Log into ModelRiver CLI: modelriver login');
+        console.log('⚠️  2. Forward webhook URL: modelriver forward http://localhost:4789/webhook/modelriver');
+        console.log('⚠️  3. Update BACKEND_PUBLIC_URL in .env with the public URL from CLI\n');
+    } else {
+        console.log(`\n✅ BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL}`);
+        console.log('✅ Webhooks should be reachable by ModelRiver\n');
+    }
+
+    console.log('Waiting for requests...\n');
 });
