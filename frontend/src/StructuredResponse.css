@@ -1,11 +1,13 @@
 /* StructuredResponse Component Styles */
 
 .structured-response {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 12px;
-    padding: 20px;
-    color: white;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+    margin-top: 8px;
 }
 
 /* Header Section */
@@ -15,7 +17,7 @@
     align-items: center;
     margin-bottom: 16px;
     padding-bottom: 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .sentiment-indicator {
@@ -24,14 +26,11 @@
     gap: 8px;
 }
 
-.sentiment-emoji {
-    font-size: 24px;
-}
-
 .sentiment-label {
     font-weight: 600;
     text-transform: capitalize;
-    font-size: 14px;
+    font-size: 0.9rem;
+    color: var(--text-primary);
 }
 
 .confidence-indicator {
@@ -41,185 +40,151 @@
 }
 
 .confidence-bar-container {
-    width: 100px;
-    height: 8px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
+    width: 80px;
+    height: 4px;
+    background: var(--bg-tertiary);
+    border-radius: 9999px;
     overflow: hidden;
 }
 
 .confidence-bar {
     height: 100%;
-    border-radius: 4px;
-    transition: width 0.3s ease;
+    border-radius: 9999px;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .confidence-label {
-    font-size: 12px;
+    font-size: 0.8rem;
     font-weight: 500;
-    white-space: nowrap;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 /* Reply Section - Main AI Response */
 .response-reply {
-    margin-bottom: 16px;
-    padding: 16px;
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 8px;
-    backdrop-filter: blur(10px);
+    margin-bottom: 20px;
+    padding: 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    line-height: 1.5;
 }
 
-.response-reply p {
-    margin: 0;
-    line-height: 1.7;
-    font-size: 16px;
-    font-weight: 500;
-}
-
-/* Message Content Section */
-.response-message {
-    margin-bottom: 16px;
-}
-
-.response-message h4 {
-    margin: 0 0 8px 0;
-    font-size: 14px;
-    font-weight: 600;
-    opacity: 0.9;
-}
-
-.response-message p {
-    margin: 0;
-    line-height: 1.6;
-    font-size: 15px;
-}
-
-/* Summary Section */
-.response-summary {
+/* Section Common Styles */
+.response-message,
+.response-summary,
+.response-topics,
+.response-actions {
     margin-bottom: 16px;
 }
 
-.response-summary h4 {
-    margin: 0 0 8px 0;
-    font-size: 14px;
-    font-weight: 600;
-    opacity: 0.9;
+h4 {
+    margin: 0 0 10px 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
-.response-summary p {
+p {
     margin: 0;
-    line-height: 1.6;
-    font-size: 15px;
+    line-height: 1.5;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
 }
 
 /* Topics Section */
-.response-topics {
-    margin-bottom: 16px;
-}
-
-.response-topics h4 {
-    margin: 0 0 10px 0;
-    font-size: 14px;
-    font-weight: 600;
-    opacity: 0.9;
-}
-
 .topics-list {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
 }
 
 .topic-tag {
-    background: rgba(255, 255, 255, 0.2);
-    padding: 4px 12px;
-    border-radius: 16px;
-    font-size: 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.8rem;
     font-weight: 500;
-    backdrop-filter: blur(10px);
-    transition: all 0.2s ease;
-}
-
-.topic-tag:hover {
-    background: rgba(255, 255, 255, 0.3);
-    transform: translateY(-1px);
+    border: 1px solid var(--border-color);
 }
 
 /* Action Items Section */
-.response-actions {
-    margin-top: 16px;
-}
-
-.response-actions h4 {
-    margin: 0 0 10px 0;
-    font-size: 14px;
-    font-weight: 600;
-    opacity: 0.9;
-}
-
 .actions-list {
     list-style: none;
     padding: 0;
     margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .action-item {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 10px;
     padding: 10px;
-    margin-bottom: 8px;
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 8px;
-    backdrop-filter: blur(10px);
-    transition: all 0.2s ease;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    transition: all 0.2s;
 }
 
 .action-item:hover {
-    background: rgba(255, 255, 255, 0.25);
-    transform: translateX(4px);
+    border-color: var(--accent-primary);
 }
 
-.action-item:last-child {
-    margin-bottom: 0;
+.action-checkbox {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1.5px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
 }
 
-.priority-indicator {
-    font-size: 16px;
-    flex-shrink: 0;
+.action-item:hover .action-checkbox {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
 }
 
 .action-text {
-    font-size: 14px;
-    line-height: 1.5;
+    flex: 1;
+    font-size: 0.9rem;
+    color: var(--text-primary);
 }
 
-/* Priority-specific styles */
-.action-item.priority-high {
-    border-left: 3px solid #ef4444;
+/* Priority Badges */
+.priority-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
 }
 
-.action-item.priority-medium {
-    border-left: 3px solid #f59e0b;
+.priority-badge.high {
+    background: #fee2e2;
+    color: #ef4444;
 }
 
-.action-item.priority-low {
-    border-left: 3px solid #10b981;
+.priority-badge.medium {
+    background: #fef3c7;
+    color: #f59e0b;
 }
 
-/* Responsive adjustments */
-@media (max-width: 640px) {
-    .response-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 12px;
-    }
-
-    .confidence-indicator {
-        width: 100%;
-    }
-
-    .confidence-bar-container {
-        flex: 1;
-    }
+.priority-badge.low {
+    background: #d1fae5;
+    color: #10b981;
 }

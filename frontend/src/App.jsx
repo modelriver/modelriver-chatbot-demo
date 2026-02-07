@@ -18,6 +18,17 @@ import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import StructuredResponse from './StructuredResponse'
+import {
+    Send,
+    Bot,
+    User,
+    Settings,
+    AlertCircle,
+    Loader2,
+    Clock,
+    Database,
+    Hash
+} from 'lucide-react'
 
 
 // Backend API URL
@@ -76,11 +87,6 @@ function App() {
             const isStructured = meta.structured_output === true;
 
             console.log('📥 WebSocket response received:', { status, hasData: !!response.data, isStructured, time: new Date().toISOString() });
-            console.log('📦 Full response object:', response);
-            console.log('📦 Full response.data:', response.data);
-            console.log('📦 Full response.ai_response:', response.ai_response);
-            console.log('📦 Full response.meta:', response.meta);
-            console.log('📦 Response keys:', Object.keys(response));
 
             // Check if data might be in meta.data or meta.ai_response
             if (response.meta?.data) {
@@ -200,7 +206,8 @@ function App() {
                         model,
                         channelId: response.channel_id,
                         isStructured: isStructured || (typeof responseData === 'object' && !responseData.choices && !Array.isArray(responseData))
-                    }
+                    },
+                    steps: steps || []
                 }]);
 
                 setIsLoading(false);
@@ -384,7 +391,8 @@ function App() {
             {/* Header */}
             <header className="chat-header">
                 <div className="header-left">
-                    <h1>💬 Chatbot Async App</h1>
+                    <Bot size={22} color="var(--accent-primary)" strokeWidth={2.5} />
+                    <h1>ModelRiver Chatbot</h1>
                     <div className={`connection-status ${connectionState}`}>
                         <span className="status-dot"></span>
                         <span className="status-text">
@@ -395,15 +403,17 @@ function App() {
                     </div>
                 </div>
                 <div className="header-right">
-                    <label className="dev-mode-toggle">
-                        <input
-                            type="checkbox"
-                            checked={devMode}
-                            onChange={(e) => setDevMode(e.target.checked)}
-                        />
-                        <span className="slider"></span>
-                        <span className="label-text">Dev Mode</span>
-                    </label>
+                    <div className="dev-mode-control">
+                        <span className="dev-mode-label">Dev Mode</span>
+                        <label className="switch">
+                            <input
+                                type="checkbox"
+                                checked={devMode}
+                                onChange={(e) => setDevMode(e.target.checked)}
+                            />
+                            <span className="slider round"></span>
+                        </label>
+                    </div>
                 </div>
             </header>
 
@@ -411,8 +421,9 @@ function App() {
             <div className="messages-container">
                 {messages.length === 0 ? (
                     <div className="empty-state">
-                        <p>👋 Send a message to start chatting!</p>
-                        <p className="hint">Your messages are processed through ModelRiver's async API</p>
+                        <Bot size={44} strokeWidth={1.5} color="var(--text-muted)" />
+                        <h3>Welcome to ModelRiver Chat</h3>
+                        <p>Build real-time AI apps with a developer-first API interface that handles failover at scale.</p>
                     </div>
                 ) : (
                     messages.map((message) => (
@@ -420,11 +431,16 @@ function App() {
                             key={message.id}
                             className={`message ${message.role}${message.isError ? ' error' : ''}`}
                         >
-                            <div className="message-avatar">
-                                {message.role === 'user' ? '👤' : message.isError ? '⚠️' : '🤖'}
+                            <div className="avatar">
+                                {message.role === 'user' ? <User size={20} /> : message.isError ? <AlertCircle size={20} /> : <Bot size={20} />}
                             </div>
                             <div className="message-content">
-                                <div className="message-text">
+                                <div className="message-meta">
+                                    <span className="sender-name">{message.role === 'user' ? 'You' : 'ModelRiver'}</span>
+                                    <span className="timestamp">{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+
+                                <div className="message-bubble">
                                     {message.role === 'assistant' && !message.isError ? (
                                         message.meta?.isStructured ? (
                                             // Structured output - show with StructuredResponse component
@@ -460,30 +476,39 @@ function App() {
                                         message.content
                                     )}
                                 </div>
-                                {devMode && message.meta && (
-                                    <div className="message-metadata">
-                                        <div className="meta-item">🆔 {message.meta.channelId?.slice(0, 8)}...</div>
-                                        <div className="meta-item">🤖 {message.meta.model}</div>
-                                        {message.meta.duration_ms && (
-                                            <div className="meta-item">⏱️ {message.meta.duration_ms}ms</div>
-                                        )}
-                                        {message.meta.isStructured && (
-                                            <div className="meta-item">📋 Structured Output</div>
-                                        )}
-                                    </div>
-                                )}
-                                {devMode && steps.length > 0 && (
-                                    <div className="workflow-steps">
-                                        {steps.map((step) => (
-                                            <div key={step.id} className={`step step-${step.status}`}>
-                                                {step.name} - {step.status}
+
+                                {devMode && (
+                                    <div className="message-dev-info">
+                                        <div className="message-metadata">
+                                            <div className="metadata-badge">
+                                                <Hash size={12} /> {(message.meta?.channelId || message.meta?.channel_id || "").slice(0, 8)}...
                                             </div>
-                                        ))}
+                                            <div className="metadata-badge">
+                                                <Bot size={12} /> {message.meta?.model}
+                                            </div>
+                                            {message.meta?.duration_ms && (
+                                                <div className="metadata-badge">
+                                                    <Clock size={12} /> {message.meta.duration_ms}ms
+                                                </div>
+                                            )}
+                                            {message.meta?.isStructured && (
+                                                <div className="metadata-badge">
+                                                    <Database size={12} /> Structured Output
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {message.steps && message.steps.length > 0 && (
+                                            <div className="workflow-steps">
+                                                {message.steps.map((step, idx) => (
+                                                    <div key={idx} className={`step-badge step-${step.status}`}>
+                                                        {step.name}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
-                                <div className="message-time">
-                                    {new Date(message.timestamp).toLocaleTimeString()}
-                                </div>
                             </div>
                         </div>
                     ))
@@ -492,15 +517,32 @@ function App() {
                 {/* Loading indicator - show when loading or when response status is pending */}
                 {(isLoading || (response && (response.meta?.status === 'pending' || response.status === 'pending'))) && (
                     <div className="message assistant loading">
-                        <div className="message-avatar">🤖</div>
+                        <div className="avatar">
+                            <Loader2 size={18} className="animate-spin" />
+                        </div>
                         <div className="message-content">
-                            <div className="typing-indicator">
-                                <span></span>
-                                <span></span>
-                                <span></span>
+                            <div className="message-meta">
+                                <span className="sender-name">ModelRiver</span>
+                                <span className="timestamp">Thinking...</span>
                             </div>
-                            <div className="message-time">
-                                {new Date().toLocaleTimeString()}
+                            <div className="message-bubble">
+                                <div className="typing-indicator">
+                                    <span className="dot"></span>
+                                    <span className="dot"></span>
+                                    <span className="dot"></span>
+                                </div>
+
+                                {/* Streaming Workflow Process */}
+                                {steps && steps.length > 0 && (
+                                    <div className="workflow-steps loading-steps">
+                                        {steps.map((step, idx) => (
+                                            <div key={idx} className={`step-badge step-${step.status}`}>
+                                                {step.status === 'pending' && <Loader2 size={8} className="animate-spin inline-block mr-1" />}
+                                                {step.name}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -512,30 +554,36 @@ function App() {
             {/* Error Display */}
             {error && (
                 <div className="error-banner">
-                    ⚠️ {error}
+                    <div className="flex items-center gap-2">
+                        <AlertCircle size={16} />
+                        <span>{error}</span>
+                    </div>
                     <button onClick={() => setError(null)}>✕</button>
                 </div>
             )}
 
             {/* Input Area */}
             <div className="input-container">
-                <textarea
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    placeholder="Type your message..."
-                    disabled={isLoading}
-                    rows={Math.min(5, Math.max(1, inputValue.split('\n').length))}
-                    autoComplete="off"
-                    spellCheck="true"
-                />
-                <button
-                    onClick={sendMessage}
-                    disabled={isLoading || !inputValue.trim()}
-                    className="send-button"
-                >
-                    {isLoading ? '⏳' : '📤'}
-                </button>
+                <div className="input-wrapper">
+                    <textarea
+                        className="chat-input"
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        placeholder="Type your message..."
+                        disabled={isLoading}
+                        rows={Math.min(5, Math.max(1, inputValue.split('\n').length))}
+                        autoComplete="off"
+                        spellCheck="true"
+                    />
+                    <button
+                        onClick={sendMessage}
+                        disabled={isLoading || !inputValue.trim()}
+                        className="send-button"
+                    >
+                        {isLoading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+                    </button>
+                </div>
             </div>
         </div>
     )

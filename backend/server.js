@@ -226,13 +226,21 @@ app.post('/webhook/modelriver', async (req, res) => {
 /**
  * Verify webhook signature using HMAC-SHA256
  * 
- * @param {object} req - Express request object with rawBody
+ * IMPORTANT: ModelRiver signs only the 'data' field (payload), NOT the full webhook body.
+ * The webhook body structure is:
+ * {
+ *   channel_id: "...",
+ *   timestamp: "...",
+ *   data: { ... },  // <-- This is what gets signed
+ *   callback_url: "..."
+ * }
+ * 
+ * @param {object} req - Express request object with rawBody and body
  * @returns {{ valid: boolean, error?: string }}
  */
 function verifyWebhookSignature(req) {
     const signature = req.headers['x-modelriver-signature'];
     const timestamp = req.headers['x-modelriver-timestamp'];
-    const rawBody = req.rawBody;
 
     // Check for required headers
     if (!signature) {
@@ -253,8 +261,27 @@ function verifyWebhookSignature(req) {
         return { valid: false, error: 'Webhook secret not configured' };
     }
 
-    // Construct the signature payload: "${timestamp}.${json_body}"
-    const payload = `${timestamp}.${rawBody}`;
+    // IMPORTANT: ModelRiver signs the 'data' field, not the entire body
+    // The signature is generated as: HMAC-SHA256(secret, "${timestamp}.${JSON.stringify(data)}")
+    const dataField = req.body.data;
+    if (!dataField) {
+        console.warn('⚠️  No data field in webhook body, falling back to full body');
+        // Fall back to using the full body if data field is missing
+        const payload = `${timestamp}.${req.rawBody}`;
+        const expectedSignature = crypto
+            .createHmac('sha256', WEBHOOK_SECRET)
+            .update(payload)
+            .digest('hex');
+
+        if (signature === expectedSignature) {
+            return { valid: true };
+        }
+        return { valid: false, error: 'Invalid signature' };
+    }
+
+    // Construct the signature payload using the data field
+    const dataJson = JSON.stringify(dataField);
+    const payload = `${timestamp}.${dataJson}`;
 
     // Generate expected signature using HMAC-SHA256
     const expectedSignature = crypto
@@ -262,13 +289,19 @@ function verifyWebhookSignature(req) {
         .update(payload)
         .digest('hex');
 
+    console.log('🔐 Signature verification:');
+    console.log('   Timestamp:', timestamp);
+    console.log('   Data field keys:', Object.keys(dataField));
+    console.log('   Expected sig:', expectedSignature.substring(0, 20) + '...');
+    console.log('   Received sig:', signature.substring(0, 20) + '...');
+
     // Constant-time comparison to prevent timing attacks
     const sigBuffer = Buffer.from(signature);
     const expectedBuffer = Buffer.from(expectedSignature);
 
     // Check buffer lengths first (if different, signatures can't match)
     if (sigBuffer.length !== expectedBuffer.length) {
-        return { valid: false, error: 'Invalid signature' };
+        return { valid: false, error: 'Invalid signature (length mismatch)' };
     }
 
     // Use timing-safe comparison

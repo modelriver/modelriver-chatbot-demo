@@ -7,6 +7,18 @@
 
 import React from 'react';
 import './StructuredResponse.css';
+import {
+    CheckCircle2,
+    AlertTriangle,
+    Info,
+    HelpCircle,
+    TrendingUp,
+    List,
+    MessageSquare,
+    FileText,
+    Tag,
+    Check
+} from 'lucide-react';
 
 const StructuredResponse = ({ data }) => {
     // Parse data if it's a string
@@ -28,32 +40,28 @@ const StructuredResponse = ({ data }) => {
         reply // The AI's reply/answer to the user's question
     } = responseData;
 
-    // Sentiment emoji mapping
-    const getSentimentEmoji = (sentiment) => {
+    // Sentiment icon mapping
+    const getSentimentIcon = (sentiment) => {
         const sentimentMap = {
-            'positive': '😊',
-            'neutral': '😐',
-            'negative': '😟',
-            'mixed': '🤔'
+            'positive': <CheckCircle2 size={24} className="text-emerald-400" />,
+            'neutral': <Info size={24} className="text-blue-400" />,
+            'negative': <AlertTriangle size={24} className="text-rose-400" />,
+            'mixed': <HelpCircle size={24} className="text-amber-400" />
         };
-        return sentimentMap[sentiment?.toLowerCase()] || '💬';
+        return sentimentMap[sentiment?.toLowerCase()] || <MessageSquare size={24} />;
     };
 
     // Confidence color mapping
     const getConfidenceColor = (confidence) => {
-        if (confidence >= 0.8) return '#4ade80'; // green
-        if (confidence >= 0.6) return '#fbbf24'; // yellow
-        return '#f87171'; // red
+        if (confidence >= 0.8) return '#10b981'; // Emerald 500
+        if (confidence >= 0.6) return '#f59e0b'; // Amber 500
+        return '#ef4444'; // Red 500
     };
 
-    // Priority emoji mapping
-    const getPriorityEmoji = (priority) => {
-        const priorityMap = {
-            'high': '🔴',
-            'medium': '🟡',
-            'low': '🟢'
-        };
-        return priorityMap[priority?.toLowerCase()] || '⚪';
+    // Priority icon mapping
+    const getPriorityIcon = (priority) => {
+        // Just use a dot with color for now, managed via CSS classes
+        return <div className={`priority-dot priority-${priority?.toLowerCase()}`} />;
     };
 
     return (
@@ -61,7 +69,7 @@ const StructuredResponse = ({ data }) => {
             {/* Header with Sentiment and Confidence */}
             <div className="response-header">
                 <div className="sentiment-indicator">
-                    <span className="sentiment-emoji">{getSentimentEmoji(sentiment)}</span>
+                    {getSentimentIcon(sentiment)}
                     <span className="sentiment-label">{sentiment || 'neutral'}</span>
                 </div>
                 {confidence !== undefined && (
@@ -76,7 +84,8 @@ const StructuredResponse = ({ data }) => {
                             />
                         </div>
                         <span className="confidence-label">
-                            {(confidence * 100).toFixed(0)}% confident
+                            <TrendingUp size={14} />
+                            {(confidence * 100).toFixed(0)}%
                         </span>
                     </div>
                 )}
@@ -92,7 +101,7 @@ const StructuredResponse = ({ data }) => {
             {/* Message Content */}
             {message && (
                 <div className="response-message">
-                    <h4>💬 Status</h4>
+                    <h4><MessageSquare size={16} /> Status</h4>
                     <p>{message}</p>
                 </div>
             )}
@@ -100,7 +109,7 @@ const StructuredResponse = ({ data }) => {
             {/* Summary */}
             {summary && (
                 <div className="response-summary">
-                    <h4>📝 Summary</h4>
+                    <h4><FileText size={16} /> Summary</h4>
                     <p>{summary}</p>
                 </div>
             )}
@@ -108,7 +117,7 @@ const StructuredResponse = ({ data }) => {
             {/* Topics */}
             {topics.length > 0 && (
                 <div className="response-topics">
-                    <h4>📌 Topics</h4>
+                    <h4><Tag size={16} /> Topics</h4>
                     <div className="topics-list">
                         {topics.map((topic, index) => (
                             <span key={index} className="topic-tag">
@@ -122,14 +131,17 @@ const StructuredResponse = ({ data }) => {
             {/* Action Items */}
             {action_items.length > 0 && (
                 <div className="response-actions">
-                    <h4>✅ Action Items</h4>
+                    <h4><List size={16} /> Action Items</h4>
                     <ul className="actions-list">
                         {action_items.map((item, index) => (
                             <li key={index} className={`action-item priority-${item.priority?.toLowerCase()}`}>
-                                <span className="priority-indicator">
-                                    {getPriorityEmoji(item.priority)}
-                                </span>
+                                <div className="action-checkbox">
+                                    <Check size={14} />
+                                </div>
                                 <span className="action-text">{item.task}</span>
+                                <span className={`priority-badge ${item.priority?.toLowerCase()}`}>
+                                    {item.priority}
+                                </span>
                             </li>
                         ))}
                     </ul>
